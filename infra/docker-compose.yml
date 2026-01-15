@@ -1,0 +1,14 @@
+services:
+  backend:
+    image: myapp-backend:local
+    ports:
+      - "8081:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+
+  frontend:
+    image: myapp-frontend:local
+    ports:
+      - "8082:80"
+    depends_on:
+      - backend
