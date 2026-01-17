@@ -1,6 +1,6 @@
 services:
   jenkins:
-    image: jenkins/jenkins:lts-jdk17
+    build: .
     user: root
     ports:
       - "8080:8080"
@@ -11,3 +11,4 @@ services:
       - ..:/workspace
 volumes:
   jenkins_home:
+    name: jenkins_home

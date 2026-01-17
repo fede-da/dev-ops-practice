@@ -42,6 +42,12 @@ pipeline {
             beChanged = files.any { it.startsWith("back-end/") }
             infraChanged = files.any { it.startsWith("infra/") }
 
+            if (files.any { it == "Jenkinsfile" }) {
+              feChanged = true
+              beChanged = true
+              infraChanged = true
+            }
+
             echo "Changed files:\n${changed}"
           } else {
             echo "No previous commit to diff against. Building everything."
@@ -143,9 +149,9 @@ pipeline {
       steps {
         dir("${INFRA_DIR}") {
           // docker compose v2 dovrebbe esserci; se non c'è, ti do workaround
-          sh 'docker compose version'
-          sh 'docker compose up -d --force-recreate'
-          sh 'docker compose ps'
+          sh 'docker-compose version'
+          sh 'docker-compose up -d --force-recreate'
+          sh 'docker-compose ps'
         }
       }
     }
