@@ -144,29 +144,29 @@ pipeline {
     }
 
     stage('Deploy local (docker-compose)') {
-      when { environment name: 'DEPLOY_LOCAL', value: 'true' }
-      agent {
-        docker {
-          image 'docker:27-cli'
-          reuseNode true
-          args '-u root -v /var/run/docker.sock:/var/run/docker.sock'
+  when { environment name: 'DEPLOY_LOCAL', value: 'true' }
+  agent {
+    docker {
+      image 'docker:27-cli'
+      reuseNode true
+      args '-u root -v /var/run/docker.sock:/var/run/docker.sock'
+    }
+  }
+  steps {
+    dir("${INFRA_DIR}") {
+      script {
+        if (env.BUILD_FE == "true" && env.BUILD_BE != "true") {
+          sh 'docker-compose up -d --no-deps frontend'
+        } else if (env.BUILD_BE == "true" && env.BUILD_FE != "true") {
+          sh 'docker-compose up -d --no-deps backend'
+        } else {
+          sh 'docker-compose up -d'
         }
-      }
-      steps {
-        dir("${INFRA_DIR}") {
-        script {
-          if (env.BUILD_FE == "true" && env.BUILD_BE != "true") {
-            sh 'docker-compose up -d --no-deps frontend'
-          } else if (env.BUILD_BE == "true" && env.BUILD_FE != "true") {
-            sh 'docker-compose up -d --no-deps backend'
-          } else {
-            sh 'docker-compose up -d'
-          }
-          sh 'docker-compose ps'
-        }
+        sh 'docker-compose ps'
       }
     }
   }
+}
 
   post {
     always {
