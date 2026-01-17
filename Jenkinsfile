@@ -154,10 +154,14 @@ pipeline {
       }
       steps {
         dir("${INFRA_DIR}") {
-          sh 'docker-compose version'
-          sh 'docker-compose up -d --force-recreate'
-          sh 'docker-compose ps'
+        if (env.BUILD_FE == "true" && env.BUILD_BE != "true") {
+          sh 'docker-compose up -d --no-deps frontend'
+        } else if (env.BUILD_BE == "true" && env.BUILD_FE != "true") {
+          sh 'docker-compose up -d --no-deps backend'
+        } else {
+          sh 'docker-compose up -d'
         }
+      }
       }
     }
   }
