@@ -154,14 +154,16 @@ pipeline {
       }
       steps {
         dir("${INFRA_DIR}") {
-        if (env.BUILD_FE == "true" && env.BUILD_BE != "true") {
-          sh 'docker-compose up -d --no-deps frontend'
-        } else if (env.BUILD_BE == "true" && env.BUILD_FE != "true") {
-          sh 'docker-compose up -d --no-deps backend'
-        } else {
-          sh 'docker-compose up -d'
+        script {
+          if (env.BUILD_FE == "true" && env.BUILD_BE != "true") {
+            sh 'docker-compose up -d --no-deps frontend'
+          } else if (env.BUILD_BE == "true" && env.BUILD_FE != "true") {
+            sh 'docker-compose up -d --no-deps backend'
+          } else {
+            sh 'docker-compose up -d'
+          }
+          sh 'docker-compose ps'
         }
-      }
       }
     }
   }
