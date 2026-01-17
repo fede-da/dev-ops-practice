@@ -20,8 +20,8 @@ pipeline {
     stage('Checkout') {
       steps {
         checkout scm
-        // utile per i diff su PR: assicuriamoci di avere origin/master
-        sh 'git fetch --no-tags --prune origin +refs/heads/*:refs/remotes/origin/*'
+        // per PR diff robusto
+        sh 'git fetch --no-tags --prune origin +refs/heads/*:refs/remotes/origin/* || true'
       }
     }
 
@@ -31,39 +31,37 @@ pipeline {
           boolean isPR = (env.CHANGE_ID != null && env.CHANGE_ID.trim() != "")
           boolean isMaster = (env.BRANCH_NAME == "master")
 
-          // Calcolo files cambiati:
-          // - PR: diff tra merge-base con origin/master e HEAD
-          // - Push: diff HEAD~1..HEAD (se esiste), altrimenti build everything
           List<String> files = []
+          boolean diffReliable = true
 
           if (isPR) {
+            // PR: diff vs merge-base con origin/master
             def base = sh(script: "git merge-base HEAD origin/master", returnStdout: true).trim()
             def changed = sh(script: "git diff --name-only ${base}..HEAD", returnStdout: true).trim()
             files = changed ? (changed.split("\n") as List) : []
             echo "PR detected (CHANGE_ID=${env.CHANGE_ID}). Diff base=${base}"
             echo "Changed files:\n${changed}"
           } else {
+            // Push: diff vs HEAD~1 se esiste, altrimenti non affidabile (primo build)
             def canDiff = (sh(script: 'git rev-parse --verify HEAD~1 >/dev/null 2>&1; echo $?', returnStdout: true).trim() == "0")
             if (canDiff) {
               def changed = sh(script: "git diff --name-only HEAD~1..HEAD", returnStdout: true).trim()
               files = changed ? (changed.split("\n") as List) : []
               echo "Push build. Changed files:\n${changed}"
             } else {
-              echo "No previous commit to diff against. Building everything."
-              files = []
+              diffReliable = false
+              echo "No previous commit to diff against (first build?). Will build everything."
             }
           }
 
-          // Se non riusciamo a determinare i file (es. primo build), buildiamo tutto
-          boolean buildAll = files.isEmpty()
+          // Cambi rilevanti
+          boolean feChanged = (!diffReliable) || files.any { it.startsWith("front-end/") }
+          boolean beChanged = (!diffReliable) || files.any { it.startsWith("back-end/") }
+          boolean infraChanged = (!diffReliable) || files.any { it.startsWith("infra/") }
+          boolean jenkinsfileChanged = (!diffReliable) || files.any { it == "Jenkinsfile" }
 
-          boolean feChanged = buildAll || files.any { it.startsWith("front-end/") }
-          boolean beChanged = buildAll || files.any { it.startsWith("back-end/") }
-          boolean infraChanged = buildAll || files.any { it.startsWith("infra/") }
-          boolean jenkinsfileChanged = buildAll || files.any { it == "Jenkinsfile" }
-
-          // Se cambia Jenkinsfile o infra, ha senso ricostruire tutto (validazione end-to-end)
-          if (jenkinsfileChanged || infraChanged) {
+          // Se cambia infra o Jenkinsfile, ha senso ricostruire e redeployare entrambi
+          if (infraChanged || jenkinsfileChanged) {
             feChanged = true
             beChanged = true
           }
@@ -71,8 +69,9 @@ pipeline {
           env.BUILD_FE = feChanged.toString()
           env.BUILD_BE = beChanged.toString()
 
-          // Deploy automatico SOLO su master, NO PR
-          env.DEPLOY_LOCAL = (isMaster && !isPR && (feChanged || beChanged || infraChanged || jenkinsfileChanged)).toString()
+          // Deploy automatico su master (non su PR) solo se c'è qualcosa da fare
+          boolean somethingChanged = feChanged || beChanged || infraChanged || jenkinsfileChanged
+          env.DEPLOY_LOCAL = (isMaster && !isPR && somethingChanged).toString()
 
           echo "BUILD_FE=${env.BUILD_FE} BUILD_BE=${env.BUILD_BE} DEPLOY_LOCAL=${env.DEPLOY_LOCAL} | branch=${env.BRANCH_NAME} PR=${isPR}"
         }
@@ -121,7 +120,6 @@ pipeline {
         docker {
           image 'docker:27-cli'
           reuseNode true
-          // Usa il socket dell'host Docker Desktop
           args '-u root -v /var/run/docker.sock:/var/run/docker.sock'
         }
       }
@@ -144,29 +142,35 @@ pipeline {
     }
 
     stage('Deploy local (docker-compose)') {
-  when { environment name: 'DEPLOY_LOCAL', value: 'true' }
-  agent {
-    docker {
-      image 'docker:27-cli'
-      reuseNode true
-      args '-u root -v /var/run/docker.sock:/var/run/docker.sock'
-    }
-  }
-  steps {
-    dir("${INFRA_DIR}") {
-      script {
-        if (env.BUILD_FE == "true" && env.BUILD_BE != "true") {
-          sh 'docker-compose up -d --no-deps frontend'
-        } else if (env.BUILD_BE == "true" && env.BUILD_FE != "true") {
-          sh 'docker-compose up -d --no-deps backend'
-        } else {
-          sh 'docker-compose up -d'
+      when { environment name: 'DEPLOY_LOCAL', value: 'true' }
+      agent {
+        docker {
+          image 'docker:27-cli'
+          reuseNode true
+          args '-u root -v /var/run/docker.sock:/var/run/docker.sock'
         }
-        sh 'docker-compose ps'
+      }
+      steps {
+        dir("${INFRA_DIR}") {
+          script {
+            // Deploy mirato:
+            // - solo FE: ricrea frontend senza toccare backend
+            // - solo BE: ricrea backend senza toccare frontend
+            // - entrambi (o infra/Jenkinsfile): up generale
+            if (env.BUILD_FE == "true" && env.BUILD_BE != "true") {
+              sh 'docker-compose up -d --no-deps frontend'
+            } else if (env.BUILD_BE == "true" && env.BUILD_FE != "true") {
+              sh 'docker-compose up -d --no-deps backend'
+            } else {
+              sh 'docker-compose up -d'
+            }
+
+            sh 'docker-compose ps'
+          }
+        }
       }
     }
   }
-}
 
   post {
     always {
