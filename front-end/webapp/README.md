@@ -61,4 +61,4 @@ For more information on using the Angular CLI, including detailed command refere
 
 # Notes exercise
 
-N/A - 3
+N/A - 2
